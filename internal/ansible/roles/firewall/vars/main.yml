@@ -1,0 +1,6 @@
+---
+firewall_ports_all: >-
+  {{ (firewall_allow_ports
+      + (['80/tcp', '443/tcp'] if 'nginx' in im_roles else [])
+      + (['9100/tcp'] if 'node_exporter' in im_roles else []))
+     | unique | list }}

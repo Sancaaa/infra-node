@@ -1,0 +1,63 @@
+---
+# The base role: the package list, the time zone and time synchronisation.
+# Every task is a module (never a shell command), so a second run changes nothing.
+# A task that needs something an earlier task installs is skipped in a dry run
+# while that is still to come ("when: not (ansible_check_mode and ... is changed)"),
+# or the dry run would fail on a host that does not have it yet.
+
+- name: Refresh the package list
+  ansible.builtin.apt:
+    update_cache: true
+    cache_valid_time: 3600
+  when: base_update_cache | bool
+
+- name: Install the pending package upgrades
+  ansible.builtin.apt:
+    upgrade: safe
+  when: base_upgrade | bool
+
+- name: Install the base packages
+  ansible.builtin.apt:
+    name: "{{ base_packages }}"
+    state: present
+  when: base_packages | length > 0
+
+- name: Check that the time zone {{ base_timezone }} exists
+  ansible.builtin.stat:
+    path: "/usr/share/zoneinfo/{{ base_timezone }}"
+  register: base_tz
+
+- name: Stop if the time zone does not exist
+  ansible.builtin.assert:
+    that: base_tz.stat.exists
+    fail_msg: "The time zone {{ base_timezone }} is not on this host. Use a name from /usr/share/zoneinfo, such as Europe/Berlin or Asia/Makassar."
+    quiet: true
+
+- name: Point /etc/localtime at {{ base_timezone }}
+  ansible.builtin.file:
+    src: "/usr/share/zoneinfo/{{ base_timezone }}"
+    dest: /etc/localtime
+    state: link
+    force: true
+
+- name: Write the time zone name to /etc/timezone
+  ansible.builtin.copy:
+    content: "{{ base_timezone }}\n"
+    dest: /etc/timezone
+    owner: root
+    group: root
+    mode: "0644"
+
+- name: Install chrony to keep the clock right
+  ansible.builtin.apt:
+    name: chrony
+    state: present
+  register: base_chrony
+  when: base_ntp | bool
+
+- name: Run chrony now and at boot
+  ansible.builtin.service:
+    name: chrony
+    state: started
+    enabled: true
+  when: base_ntp | bool and not (ansible_check_mode and base_chrony is changed)

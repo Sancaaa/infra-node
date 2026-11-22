@@ -1,0 +1,5 @@
+# build output
+/bin/
+
+# runtime data (database, SSH keys, secrets, generated files)
+/data/

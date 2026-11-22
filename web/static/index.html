@@ -1,0 +1,37 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>infra manager</title>
+<link rel="icon" type="image/svg+xml" href="/headnode-mark.svg">
+<link rel="stylesheet" href="/style.css">
+<script src="/app.js" defer></script>
+</head>
+<body>
+<div class="app">
+
+  <aside class="sidebar">
+    <div class="org">
+      <img class="org-logo" src="/headnode-mark.svg" alt="">
+      <div class="org-text">
+        <div>infra manager</div>
+      </div>
+    </div>
+    <!-- app.js fills in the links -->
+    <nav class="nav" id="nav"></nav>
+    <!-- app.js fills in who is logged in, and Sign out -->
+    <div class="sidebar-foot" id="sidebar-foot"></div>
+  </aside>
+
+  <main class="main">
+    <!-- app.js fills this in. There is no inline script or style anywhere in
+         web/static, which is what lets the server send a strict
+         Content-Security-Policy (internal/web/security.go). -->
+    <div class="content" id="view"></div>
+  </main>
+
+</div>
+</body>
+</html>

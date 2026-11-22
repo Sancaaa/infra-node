@@ -1,0 +1,94 @@
+{
+  "format_version": "1.2",
+  "terraform_version": "1.9.5",
+  "resource_changes": [
+    {
+      "address": "proxmox_virtual_environment_container.web",
+      "type": "proxmox_virtual_environment_container",
+      "name": "web",
+      "change": {
+        "actions": ["create"],
+        "before": null,
+        "after": {
+          "node_name": "pve",
+          "unprivileged": true,
+          "description": null,
+          "memory": [{"dedicated": 1024, "swap": 512}],
+          "initialization": [{"hostname": "ct-web", "user_account": [{"password": "hunter2"}]}]
+        },
+        "after_unknown": {"id": true, "ipv4": true, "memory": [{}], "initialization": [{"user_account": [{}]}]},
+        "before_sensitive": false,
+        "after_sensitive": {"initialization": [{"user_account": [{"password": true}]}]}
+      }
+    },
+    {
+      "address": "proxmox_virtual_environment_container.db",
+      "type": "proxmox_virtual_environment_container",
+      "name": "db",
+      "change": {
+        "actions": ["update"],
+        "before": {"memory": [{"dedicated": 1024}], "tags": ["lab"]},
+        "after": {"memory": [{"dedicated": 2048}], "tags": ["lab"]},
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "proxmox_virtual_environment_container.old",
+      "type": "proxmox_virtual_environment_container",
+      "name": "old",
+      "action_reason": "replace_because_cannot_update",
+      "change": {
+        "actions": ["delete", "create"],
+        "before": {"template": "debian-11"},
+        "after": {"template": "debian-12"},
+        "after_unknown": {"id": true},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    },
+    {
+      "address": "local_file.gone",
+      "type": "local_file",
+      "name": "gone",
+      "action_reason": "delete_because_no_resource_config",
+      "change": {
+        "actions": ["delete"],
+        "before": {"filename": "a.txt", "content": "secret stuff"},
+        "after": null,
+        "after_unknown": {},
+        "before_sensitive": {"content": true},
+        "after_sensitive": false
+      }
+    },
+    {
+      "address": "local_file.same",
+      "type": "local_file",
+      "name": "same",
+      "change": {
+        "actions": ["no-op"],
+        "before": {"filename": "b.txt"},
+        "after": {"filename": "b.txt"},
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    }
+  ],
+  "resource_drift": [
+    {
+      "address": "proxmox_virtual_environment_container.db",
+      "type": "proxmox_virtual_environment_container",
+      "name": "db",
+      "change": {
+        "actions": ["update"],
+        "before": {"description": "made by terraform"},
+        "after": {"description": "changed in the GUI"},
+        "after_unknown": {},
+        "before_sensitive": {},
+        "after_sensitive": {}
+      }
+    }
+  ]
+}

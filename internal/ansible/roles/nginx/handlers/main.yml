@@ -1,0 +1,13 @@
+---
+# Both listen to the same topic and run in this order: the configuration is
+# tested first, and nginx is reloaded only if the test passed.
+- name: Test the nginx configuration
+  ansible.builtin.command: nginx -t
+  changed_when: false
+  listen: nginx config changed
+
+- name: Reload nginx
+  ansible.builtin.service:
+    name: nginx
+    state: reloaded
+  listen: nginx config changed

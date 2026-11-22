@@ -1,0 +1,35 @@
+---
+# The firewall role: ufw, with the SSH port always open.
+# The SSH port is allowed first and the firewall is turned on last, so turning it
+# on can never cut the connection Ansible is using. The ports of the other roles
+# (80 and 443 for nginx, 9100 for node_exporter) are opened by this role itself
+# (see vars/main.yml), so a web host does not need them listed twice.
+# It uses community.general.ufw, which the Debian and Ubuntu "ansible" package has.
+
+- name: Install ufw
+  ansible.builtin.apt:
+    name: ufw
+    state: present
+  register: firewall_pkg
+
+- name: Always allow the SSH port {{ ansible_port | default(22) }}
+  community.general.ufw:
+    rule: allow
+    port: "{{ ansible_port | default(22) }}"
+    proto: tcp
+  when: not (ansible_check_mode and firewall_pkg is changed)
+
+- name: Allow incoming {{ item }}
+  community.general.ufw:
+    rule: allow
+    port: "{{ item.split('/')[0] }}"
+    proto: "{{ (item ~ '/tcp').split('/')[1] }}"
+  loop: "{{ firewall_ports_all }}"
+  when: not (ansible_check_mode and firewall_pkg is changed)
+
+- name: Turn the firewall on and refuse the rest of what comes in
+  community.general.ufw:
+    state: enabled
+    policy: deny
+    direction: incoming
+  when: not (ansible_check_mode and firewall_pkg is changed)

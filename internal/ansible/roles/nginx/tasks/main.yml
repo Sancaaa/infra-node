@@ -1,0 +1,74 @@
+---
+# The nginx role: one site, either static files or a reverse proxy to an
+# upstream. The site is written to sites-available and linked from
+# sites-enabled; nginx is tested and reloaded only when a file changed.
+
+- name: Install the nginx package
+  ansible.builtin.apt:
+    name: nginx
+    state: present
+  register: nginx_pkg
+
+- name: Create the web root {{ nginx_root }}
+  ansible.builtin.file:
+    path: "{{ nginx_root }}"
+    state: directory
+    mode: "0755"
+  when: nginx_mode == 'static'
+
+- name: Put a first page in the web root if it has none
+  ansible.builtin.copy:
+    content: |
+      <!doctype html>
+      <title>{{ nginx_domain }}</title>
+      <h1>{{ nginx_domain }}</h1>
+      <p>Served by nginx on {{ inventory_hostname }}, set up by infra-manager.</p>
+    dest: "{{ nginx_root }}/index.html"
+    mode: "0644"
+    force: false
+  when: nginx_mode == 'static'
+
+# Reject characters that would break or expand inside the nginx proxy_set_header directive.
+- name: Check that the nginx proxy token has no unsafe characters
+  ansible.builtin.assert:
+    that:
+      - nginx_proxy_token is not search('["$;\r\n\\\\]')
+    fail_msg: "The nginx proxy token cannot contain quotes, semicolons, dollar signs, backslashes, or newlines."
+    quiet: true
+  no_log: true
+  when: nginx_mode == 'proxy' and nginx_proxy_token | length > 0
+
+# With a token in it the file is private, and no_log keeps the token out of the
+# output, the diff of a dry run included.
+- name: Write the nginx site /etc/nginx/sites-available/{{ nginx_site_name }}
+  ansible.builtin.template:
+    src: site.conf.j2
+    dest: "/etc/nginx/sites-available/{{ nginx_site_name }}"
+    owner: root
+    group: root
+    mode: "{{ '0600' if nginx_proxy_token | length > 0 else '0644' }}"
+  notify: nginx config changed
+  no_log: "{{ nginx_proxy_token | length > 0 }}"
+  when: not (ansible_check_mode and nginx_pkg is changed)
+
+- name: Enable the nginx site {{ nginx_site_name }}
+  ansible.builtin.file:
+    src: "../sites-available/{{ nginx_site_name }}"
+    dest: "/etc/nginx/sites-enabled/{{ nginx_site_name }}"
+    state: link
+  notify: nginx config changed
+  when: not (ansible_check_mode and nginx_pkg is changed)
+
+- name: Remove the default nginx site
+  ansible.builtin.file:
+    path: /etc/nginx/sites-enabled/default
+    state: absent
+  notify: nginx config changed
+  when: nginx_remove_default | bool and not (ansible_check_mode and nginx_pkg is changed)
+
+- name: Run nginx now and at boot
+  ansible.builtin.service:
+    name: nginx
+    state: started
+    enabled: true
+  when: not (ansible_check_mode and nginx_pkg is changed)

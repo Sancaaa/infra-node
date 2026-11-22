@@ -1,0 +1,42 @@
+---
+# The users role: a user for people (and for the dashboard, if it should stop
+# logging in as root) with their SSH keys and sudo.
+#
+# The keys are added one line at a time and never replace the file: if this user
+# is the one the dashboard logs in as, its own key must stay in authorized_keys.
+
+- name: Create the user {{ users_name }}
+  ansible.builtin.user:
+    name: "{{ users_name }}"
+    shell: "{{ users_shell }}"
+    create_home: true
+    state: present
+  register: users_user
+
+- name: Create the .ssh folder of {{ users_name }}
+  ansible.builtin.file:
+    path: "/home/{{ users_name }}/.ssh"
+    state: directory
+    owner: "{{ users_name }}"
+    mode: "0700"
+  when: users_ssh_keys | length > 0 and not (ansible_check_mode and users_user is changed)
+
+- name: Authorize an SSH key of {{ users_name }}
+  ansible.builtin.lineinfile:
+    path: "/home/{{ users_name }}/.ssh/authorized_keys"
+    line: "{{ item }}"
+    create: true
+    owner: "{{ users_name }}"
+    mode: "0600"
+  loop: "{{ users_ssh_keys }}"
+  when: not (ansible_check_mode and users_user is changed)
+
+- name: Let {{ users_name }} use sudo without a password
+  ansible.builtin.copy:
+    content: "{{ users_name }} ALL=(ALL) NOPASSWD:ALL\n"
+    dest: "/etc/sudoers.d/90-infra-manager-{{ users_name }}"
+    owner: root
+    group: root
+    mode: "0440"
+    validate: /usr/sbin/visudo -cf %s
+  when: users_sudo | bool

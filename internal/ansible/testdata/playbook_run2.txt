@@ -1,0 +1,28 @@
+
+PLAY [Configure the web server] ************************************************
+
+TASK [Gathering Facts] *********************************************************
+ok: [ct-web-01]
+
+TASK [Install nginx] ***********************************************************
+ok: [ct-web-01]
+
+TASK [Install tools] ***********************************************************
+ok: [ct-web-01] => (item=curl)
+changed: [ct-web-01] => (item=git)
+
+TASK [Write the visit log] *****************************************************
+changed: [ct-web-01]
+
+TASK [Copy index.html] *********************************************************
+ok: [ct-web-01]
+
+TASK [Only on db] **************************************************************
+skipping: [ct-web-01]
+
+RUNNING HANDLER [restart nginx] ************************************************
+changed: [ct-web-01 -> localhost]
+
+PLAY RECAP *********************************************************************
+ct-web-01                  : ok=6    changed=3    unreachable=0    failed=0    skipped=1    rescued=0    ignored=0
+

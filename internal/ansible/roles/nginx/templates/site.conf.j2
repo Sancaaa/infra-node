@@ -1,0 +1,27 @@
+# Written by infra-manager. Changes made here are overwritten.
+server {
+    listen 80;
+    listen [::]:80;
+    server_name {{ nginx_domain }};
+{% if nginx_mode == 'proxy' %}
+
+    location / {
+        proxy_pass {{ nginx_upstream }};
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+{% if nginx_proxy_token | length > 0 %}
+        proxy_set_header Authorization "Bearer {{ nginx_proxy_token | regex_replace('["$;\r\n\\\\]', '') }}";
+{% endif %}
+    }
+{% else %}
+
+    root {{ nginx_root }};
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+{% endif %}
+}

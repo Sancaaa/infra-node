@@ -1,0 +1,55 @@
+---
+# The docker role: Docker Engine and the compose plugin, from Docker's own apt
+# repository (Debian's docker.io has no compose plugin). Needs internet access
+# from the host. Debian and Ubuntu only.
+
+- name: Install what is needed to fetch Docker's repository key
+  ansible.builtin.apt:
+    name:
+      - ca-certificates
+      - curl
+    state: present
+
+- name: Create the folder /etc/apt/keyrings
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: Fetch Docker's repository key
+  ansible.builtin.get_url:
+    url: "https://download.docker.com/linux/{{ ansible_distribution | lower }}/gpg"
+    dest: /etc/apt/keyrings/docker.asc
+    mode: "0644"
+
+- name: Add Docker's apt repository
+  ansible.builtin.apt_repository:
+    repo: "deb [arch={{ docker_arch }} signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/{{ ansible_distribution | lower }} {{ ansible_distribution_release }} stable"
+    filename: docker
+    state: present
+
+- name: Install Docker Engine and the compose plugin
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    state: present
+  register: docker_pkg
+
+- name: Run Docker now and at boot
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+  when: not (ansible_check_mode and docker_pkg is changed)
+
+- name: Let {{ item }} use Docker without sudo
+  ansible.builtin.user:
+    name: "{{ item }}"
+    groups: docker
+    append: true
+  loop: "{{ docker_users }}"
+  when: not (ansible_check_mode and docker_pkg is changed)

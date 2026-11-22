@@ -1,0 +1,8 @@
+# Written by infra-manager. Changes made here are overwritten.
+{% if ssh_disable_root | bool %}
+PermitRootLogin no
+{% endif %}
+{% if ssh_disable_password | bool %}
+PasswordAuthentication no
+ChallengeResponseAuthentication no
+{% endif %}

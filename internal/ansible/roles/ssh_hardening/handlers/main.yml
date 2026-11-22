@@ -1,0 +1,6 @@
+---
+# Reload, not restart: the connection Ansible is using stays open.
+- name: Reload sshd
+  ansible.builtin.service:
+    name: ssh
+    state: reloaded

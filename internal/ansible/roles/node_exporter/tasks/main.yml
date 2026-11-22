@@ -1,0 +1,29 @@
+---
+# The node_exporter role: Prometheus' node exporter, from the distribution's own
+# package (prometheus-node-exporter). It listens on port 9100 on every address
+# unless node_exporter_listen says otherwise.
+
+- name: Install the node exporter package
+  ansible.builtin.apt:
+    name: prometheus-node-exporter
+    state: present
+  register: node_exporter_pkg
+
+- name: Set the address the node exporter listens on
+  ansible.builtin.lineinfile:
+    path: /etc/default/prometheus-node-exporter
+    regexp: '^ARGS='
+    line: 'ARGS="--web.listen-address={{ node_exporter_listen }}"'
+    create: true
+    owner: root
+    group: root
+    mode: "0644"
+  when: node_exporter_listen | length > 0 and not (ansible_check_mode and node_exporter_pkg is changed)
+  notify: Restart the node exporter
+
+- name: Run the node exporter now and at boot
+  ansible.builtin.service:
+    name: prometheus-node-exporter
+    state: started
+    enabled: true
+  when: not (ansible_check_mode and node_exporter_pkg is changed)

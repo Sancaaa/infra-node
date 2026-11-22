@@ -1,0 +1,24 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <title>Headnode</title>
+  <!-- A copy of docs/logo/headnode-mark.svg, which is the original (the UI files are embedded
+       from this folder, D-06). The head (center) linked to six hosts. See docs/logo/README.md. -->
+  <polygon points="32,8 52.78,20 52.78,44 32,56 11.22,44 11.22,20"
+           stroke="#4b70cc" stroke-opacity=".3" stroke-width="2.5" stroke-linejoin="round"/>
+  <g stroke="#4b70cc" stroke-width="3" stroke-linecap="round">
+    <line x1="32" y1="32" x2="32" y2="8"/>
+    <line x1="32" y1="32" x2="52.78" y2="20"/>
+    <line x1="32" y1="32" x2="52.78" y2="44"/>
+    <line x1="32" y1="32" x2="32" y2="56"/>
+    <line x1="32" y1="32" x2="11.22" y2="44"/>
+    <line x1="32" y1="32" x2="11.22" y2="20"/>
+  </g>
+  <g fill="#4b70cc">
+    <circle cx="32" cy="8" r="5"/>
+    <circle cx="52.78" cy="20" r="5"/>
+    <circle cx="52.78" cy="44" r="5"/>
+    <circle cx="32" cy="56" r="5"/>
+    <circle cx="11.22" cy="44" r="5"/>
+    <circle cx="11.22" cy="20" r="5"/>
+    <circle cx="32" cy="32" r="8"/>
+  </g>
+</svg>

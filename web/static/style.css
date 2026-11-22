@@ -1,0 +1,499 @@
+/* The look is headnode's (docs/design.md in the headnode repository): a quiet,
+   warm-gray admin console with a sidebar, tables without boxes, one blue accent,
+   and a light and a dark theme that follow the system.
+
+   The tokens in the two blocks below are copied from headnode's web/style.css.
+   Rule: no hex color outside these blocks. Everything else says var(--...), so
+   both themes keep working. */
+
+:root {
+  --bg: #ffffff;
+  --bg-app: #f7f5f4;
+  --bg-hover: #faf9f8;
+  --bg-active: #eeebea;
+  --border: #eeebea;
+  --border-input: #dad6d5;
+  --border-hover: #afacab;
+  --text: #232222;
+  --text-muted: #706e6d;
+  --text-disabled: #afacab;
+  --text-link: #3f5db3;
+  --accent: #4b70cc;
+  --accent-hover: #3f5db3;
+  --focus: #85aaf5;
+  --ok: #1ea672;
+  --ok-text: #0e6245;
+  --warn: #d97917;
+  --warn-text: #983705;
+  --danger: #b22d30;
+  --danger-text: #940821;
+  --on-accent: #ffffff; /* text on the accent color, same in both themes */
+  --terminal-bg: #111010; /* dark in both themes, so the log looks like a terminal */
+  --terminal-text: #e7e5e4;
+  --shadow-button: 0 1px 1px rgba(0, 0, 0, 0.08);
+  --shadow-pop: 0 0 0 1px var(--border), 0 15px 35px rgba(0, 0, 0, 0.12), 0 5px 15px rgba(0, 0, 0, 0.08);
+  --radius: 6px;
+  --radius-xs: 2px;
+  --font: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: SFMono-Regular, Consolas, "Liberation Mono", Menlo, monospace;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #1f1e1e;
+    --bg-app: #181717;
+    --bg-hover: #232222;
+    --bg-active: #2e2d2d;
+    --border: #2e2d2d;
+    --border-input: #444342;
+    --border-hover: #706e6d;
+    --text: #f7f5f4;
+    --text-muted: #afacab;
+    --text-disabled: #444342;
+    --text-link: #6c94ec;
+    --accent: #3f5db3;
+    --accent-hover: #4b70cc;
+    --focus: #324994;
+    --ok: #09825d;
+    --ok-text: #1ea672;
+    --warn: #d97917;
+    --warn-text: #d97917;
+    --danger: #d04841;
+    --danger-text: #e46c63;
+    --shadow-button: 0 1px 1px rgba(0, 0, 0, 0.3);
+  }
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; }
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--text);
+  font: 14px/1.43 var(--font);
+  letter-spacing: -0.015em;
+  -webkit-font-smoothing: antialiased;
+}
+a { color: var(--text-link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+svg {
+  width: 16px; height: 16px; flex: none;
+  stroke: currentColor; fill: none; stroke-width: 1.6;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+
+/* The hidden attribute must win over rules like .btn { display: inline-flex }. */
+[hidden] { display: none !important; }
+
+/* ---------------------------------------------------------------- layout */
+
+.app { display: flex; min-height: 100%; }
+
+.sidebar {
+  width: 240px; flex: none;
+  background: var(--bg-app);
+  border-right: 1px solid var(--border);
+  position: sticky; top: 0; height: 100vh;
+  display: flex; flex-direction: column;
+}
+.org { display: flex; align-items: center; gap: 10px; padding: 16px 16px 12px; font-weight: 600; }
+.org-logo { width: 28px; height: 28px; flex: none; }
+.org-text { line-height: 1.2; min-width: 0; }
+.org-version { font-size: 12px; font-weight: 400; font-variant-numeric: tabular-nums; }
+.org-version:empty { display: none; }
+.nav { flex: 1; padding: 4px 8px; display: flex; flex-direction: column; gap: 2px; }
+.nav a {
+  display: flex; align-items: center; gap: 10px;
+  height: 32px; padding: 0 10px;
+  border-radius: var(--radius); color: var(--text);
+}
+.nav a:hover { background: var(--bg-active); text-decoration: none; }
+.nav a.active { background: var(--bg-active); font-weight: 500; }
+.nav svg { color: var(--text-muted); }
+.nav-label {
+  padding: 16px 10px 4px;
+  font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.main { flex: 1; min-width: 0; padding: 32px 40px 96px; }
+.content { max-width: 1280px; margin: 0 auto; }
+
+h1 { font-size: 30px; line-height: 1.2; font-weight: 600; letter-spacing: -0.025em; margin: 0; }
+h2 { font-size: 18px; font-weight: 600; margin: 40px 0 8px; }
+.desc { margin: 8px 0 0; max-width: 640px; }
+.page-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; }
+.page-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+.section-head { display: flex; justify-content: space-between; align-items: flex-end; gap: 16px; margin-top: 40px; }
+.section-head h2 { margin: 0 0 4px; }
+
+/* ----------------------------------------------------------- small pieces */
+
+.pill {
+  display: inline-flex; align-items: center;
+  background: var(--bg-active); color: var(--text-muted);
+  font-weight: 500; border-radius: 999px;
+  padding: 4px 8px; line-height: 1;
+}
+.toolbar { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin: 24px 0 8px; }
+.tag {
+  display: inline-flex; align-items: center;
+  background: var(--bg-active); color: var(--text-muted);
+  font-size: 12px; font-weight: 500;
+  border-radius: var(--radius-xs); padding: 1px 4px; margin-right: 4px;
+}
+.tag-warn { color: var(--warn-text); }
+.sub { color: var(--text-muted); }
+.num { font-variant-numeric: tabular-nums; }
+.mono { font-family: var(--mono); font-size: 13px; }
+.dot {
+  display: inline-block; width: 8px; height: 8px; border-radius: 50%;
+  background: var(--ok); margin-right: 8px; position: relative; top: -1px;
+}
+.dot.warn { background: var(--warn); }
+.dot.bad { background: var(--danger); }
+.dot.off { background: var(--border-hover); }
+.warn { color: var(--warn-text); }
+.danger { color: var(--danger-text); }
+.danger-text { color: var(--danger-text); }
+.empty { margin: 80px 0; text-align: center; color: var(--text-muted); }
+.empty.small { margin: 16px 0; text-align: left; }
+.empty .btn { margin-top: 16px; }
+.notice {
+  margin: 24px 0; padding: 12px 16px;
+  border: 1px solid var(--border-input); border-radius: var(--radius);
+  color: var(--warn-text);
+}
+.notice .btn { margin-left: 12px; }
+.note { margin-top: 12px; max-width: 640px; color: var(--text-muted); }
+
+/* The numbers at the top of Overview. No boxes: a number, what it counts, and
+   a hairline between them. */
+.stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); margin: 24px 0 0; border-top: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+.stat { padding: 16px 16px 16px 0; }
+.stat + .stat { padding-left: 16px; border-left: 1px solid var(--border); }
+.stat-number { font-size: 30px; line-height: 1.2; font-weight: 600; letter-spacing: -0.025em; font-variant-numeric: tabular-nums; }
+.stat-label { color: var(--text-muted); }
+
+/* ---------------------------------------------------------------- tables */
+
+table { width: 100%; border-collapse: collapse; }
+th {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--text-muted); text-align: left;
+  padding: 8px 4px; border-bottom: 1px solid var(--border);
+}
+td { padding: 10px 4px; border-bottom: 1px solid var(--border); vertical-align: middle; }
+tbody tr:hover { background: var(--bg-hover); }
+.name { font-weight: 600; color: var(--text); }
+.col-act { width: 1%; white-space: nowrap; text-align: right; }
+.col-act > * + * { margin-left: 4px; }
+td.wrap { word-break: break-word; }
+td.message { word-break: break-word; max-width: 520px; }
+tr.warning-event td:first-child { box-shadow: inset 2px 0 0 var(--warn); }
+
+/* The facts of the Cluster page: a label and a value on each line. */
+.facts { display: grid; grid-template-columns: 200px 1fr; margin: 8px 0 0; }
+.facts dt, .facts dd { margin: 0; padding: 10px 4px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.facts dt { color: var(--text-muted); }
+
+/* Usage: a number and a thin bar (design.md §5). Warning from 80 %, danger from 95 %. */
+.usage { min-width: 120px; }
+.usage + .usage { margin-top: 6px; }
+.usage-text { display: flex; justify-content: space-between; gap: 8px; }
+.bar { height: 4px; margin-top: 2px; background: var(--bg-active); border-radius: 2px; overflow: hidden; }
+.bar-fill { height: 100%; background: var(--accent); }
+.usage.warn .bar-fill { background: var(--warn); }
+.usage.danger .bar-fill { background: var(--danger); }
+.usage.warn, .usage.danger { color: inherit; } /* only the bar changes color */
+
+/* --------------------------------------------------- buttons and inputs */
+
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  height: 36px; padding: 0 12px;
+  border-radius: var(--radius); border: 1px solid var(--border-input);
+  background: var(--bg); color: var(--text);
+  font: inherit; font-weight: 500; line-height: 1;
+  box-shadow: var(--shadow-button); cursor: pointer; white-space: nowrap;
+}
+.btn:hover { border-color: var(--border-hover); }
+a.btn:hover { text-decoration: none; }
+.btn-small { height: 28px; padding: 0 10px; gap: 6px; }
+.btn:disabled { color: var(--text-disabled); cursor: default; }
+.btn-primary { background: var(--accent); border-color: var(--accent); color: var(--on-accent); }
+.btn-primary:hover { background: var(--accent-hover); border-color: var(--accent-hover); }
+.btn-primary:disabled { color: var(--on-accent); opacity: 0.6; }
+.btn-danger { background: var(--danger); border-color: var(--danger); color: var(--on-accent); }
+.btn-danger:hover { opacity: 0.9; }
+.btn-danger:disabled { opacity: 0.6; color: var(--on-accent); }
+.btn-danger-text { color: var(--danger-text); }
+.icon-button {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 28px; height: 28px; border: 0; border-radius: var(--radius);
+  background: none; color: var(--text-muted); cursor: pointer;
+}
+.icon-button:hover { background: var(--bg-active); color: var(--text); text-decoration: none; }
+.icon-button.danger-text, .icon-button.danger-text:hover { color: var(--danger-text); }
+.link-button { background: none; border: 0; padding: 0; color: var(--text-link); font: inherit; cursor: pointer; }
+.link-button:hover { text-decoration: underline; }
+
+.input {
+  width: 100%; height: 36px; padding: 0 12px;
+  border: 1px solid var(--border-input); border-radius: var(--radius);
+  background: var(--bg); color: var(--text); font: inherit;
+}
+.input::placeholder { color: var(--text-disabled); }
+.input:hover { border-color: var(--border-hover); }
+.input:focus { outline: 2px solid var(--focus); outline-offset: 0; }
+select.input { padding-right: 8px; }
+.input-small { width: auto; min-width: 160px; height: 32px; }
+textarea.input { height: auto; padding: 8px 12px; font-family: var(--mono); font-size: 13px; }
+.field { display: block; margin-top: 16px; }
+.field > span { display: block; margin-bottom: 4px; font-weight: 500; }
+.field .hint { display: block; margin: 4px 0 0; font-weight: 400; color: var(--text-muted); }
+.check { display: flex; align-items: center; gap: 8px; margin-top: 16px; }
+.check input { margin: 0; }
+.row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.row.three { grid-template-columns: 1fr 1fr 1fr; }
+.form-error { margin-top: 16px; color: var(--danger-text); }
+
+/* A menu under a "⋯" button: the actions that are not worth a button of their own. */
+.menu-anchor { position: relative; display: inline-block; text-align: left; }
+.menu {
+  position: absolute; top: 100%; right: 0; z-index: 20; margin-top: 4px; padding: 4px;
+  min-width: 180px;
+  background: var(--bg); border-radius: var(--radius); box-shadow: var(--shadow-pop);
+}
+.menu-item {
+  display: block; width: 100%; height: 32px; padding: 0 12px;
+  border: 0; border-radius: var(--radius-xs); background: none;
+  color: var(--text); font: inherit; text-align: left; cursor: pointer; white-space: nowrap;
+}
+.menu-item:hover { background: var(--bg-active); }
+.menu-item.danger-text { color: var(--danger-text); }
+
+/* ---------------------------------------------------------------- dialogs */
+
+.dialog {
+  width: 480px; max-width: calc(100vw - 32px);
+  padding: 24px; border: 0; border-radius: var(--radius);
+  background: var(--bg); color: var(--text);
+  box-shadow: var(--shadow-pop);
+}
+.dialog::backdrop { background: rgba(0, 0, 0, 0.4); }
+.dialog.dialog-wide { width: min(960px, calc(100vw - 32px)); }
+.dialog-title { font-size: 18px; font-weight: 600; margin: 0 0 8px; }
+.dialog p { margin: 8px 0; white-space: pre-line; } /* a "\n\n" in a message is a new paragraph */
+.dialog-actions { display: flex; justify-content: space-between; gap: 8px; margin-top: 24px; }
+.dialog-actions.end { justify-content: flex-end; }
+.dialog-group { margin-top: 24px; padding-top: 16px; border-top: 1px solid var(--border); }
+.dialog-group h3 { margin: 0 0 4px; font-size: 14px; font-weight: 600; }
+
+.code-block {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+  margin: 12px 0; padding: 12px;
+  background: var(--bg-app); border-radius: var(--radius);
+}
+.code-block pre { margin: 0; font: 13px/1.5 var(--mono); white-space: pre-wrap; word-break: break-all; }
+
+/* The output of a task or of kubectl: dark in both themes, like a terminal. */
+.log {
+  height: 50vh; margin: 12px 0 0; padding: 12px; overflow: auto;
+  background: var(--terminal-bg); color: var(--terminal-text);
+  border-radius: var(--radius);
+  font: 13px/1.5 var(--mono); white-space: pre-wrap; word-break: break-word;
+}
+.log-status { display: flex; align-items: center; min-height: 20px; }
+.log-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; margin-top: 8px; }
+.log-controls .check { margin: 0; }
+
+/* kept off screen, only used to copy text when the clipboard API is not allowed */
+.clipboard-helper { position: fixed; left: -9999px; top: 0; }
+
+/* ------------------------------------------------------------ small screens */
+
+@media (max-width: 1024px) {
+  .app { flex-direction: column; }
+  .sidebar { position: static; width: auto; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+  .nav { flex-direction: row; flex-wrap: wrap; padding-bottom: 8px; }
+  .nav-label { display: none; }
+  .main { padding: 24px; }
+}
+@media (max-width: 768px) {
+  .col-hide { display: none; }
+  h1 { font-size: 24px; }
+  .facts { grid-template-columns: 120px 1fr; }
+  .row, .row.three { grid-template-columns: 1fr; }
+}
+
+/* ------------------------------------------------- show-command mode (OD-02) */
+
+/* Every command block has the class "cmd"; the Commands switch in the sidebar
+   hides them all at once. */
+body.hide-commands .cmd { display: none !important; }
+.cmd { margin: 12px 0; }
+.cmd .code-block { margin: 4px 0 0; }
+.cmd-label {
+  font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+.by-hand { max-width: 760px; margin-top: 16px; }
+.cmd-note { margin-top: 4px; font-size: 12px; }
+.log.log-short { height: auto; max-height: 40vh; }
+.sidebar-foot { border-top: 1px solid var(--border); padding: 12px 18px; }
+.toggle { display: inline-flex; align-items: center; gap: 8px; color: var(--text-muted); cursor: pointer; }
+.toggle input { margin: 0; }
+
+/* ------------------------------------------------------- infra manager (OD-06)
+   Everything above this line is copied from k3s manager; what follows is this
+   dashboard's own. Most of it is not used yet: the milestones that need it
+   (the plan review of IM7, the Next step card of IM9, the Ansible status words
+   of IM5) come back to it. */
+
+/* Stat cards: a number, or a short word when there is no number to give. */
+.stat-text { font-size: 20px; line-height: 1.5; font-weight: 600; letter-spacing: -0.02em; }
+.stat-sub { margin-top: 2px; font-size: 12px; }
+.stat-number.ok, .stat-text.ok { color: var(--ok-text); }
+.stat-number.warn, .stat-text.warn { color: var(--warn-text); }
+.stat-number.bad, .stat-text.bad { color: var(--danger-text); }
+
+/* The one next step of the Overview. */
+.next-step {
+  margin: 24px 0 0; padding: 20px 24px;
+  border: 1px solid var(--border-input); border-left: 4px solid var(--accent); border-radius: var(--radius);
+}
+.next-step.good { border-left-color: var(--ok); }
+.next-label { font-size: 12px; font-weight: 600; letter-spacing: 0.05em; text-transform: uppercase; color: var(--text-muted); }
+.next-step h2 { margin: 4px 0 4px; }
+.next-step p { margin: 0; max-width: 680px; }
+.next-details { margin: 8px 0 0; padding-left: 20px; font-size: 13px; }
+.next-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 16px; }
+.next-actions:empty { display: none; }
+
+/* A plan waiting for its review: on top of the Infrastructure page. */
+.banner {
+  display: flex; align-items: center; justify-content: space-between; gap: 16px;
+  margin: 16px 0 0; padding: 12px 16px;
+  border: 1px solid var(--border-input); border-radius: var(--radius);
+}
+.banner.waiting { border-left: 4px solid var(--accent); }
+.banner.danger { border-left: 4px solid var(--danger); }
+.drift-line { margin: 12px 0 0; }
+.path { margin: 8px 0 0; font-size: 12px; }
+
+/* Notices that can be folded: the warnings of a folder, a tool's raw text. */
+.notice.compact { padding: 8px 16px; }
+.notice.compact > summary { cursor: pointer; }
+.notice ul { margin: 8px 0 0; padding-left: 20px; color: var(--text); }
+.notice .btn { margin-left: 0; margin-top: 8px; }
+.notice.ok-box { color: var(--text); border-color: var(--ok); }
+.notice.danger-box { color: var(--danger-text); border-color: var(--danger); }
+details.raw { margin-top: 8px; color: var(--text); }
+details.raw > summary, details.hints > summary { cursor: pointer; color: var(--text-muted); }
+details.hints { margin-top: 12px; color: var(--text); }
+details.hints ol { margin: 8px 0 0; padding-left: 20px; }
+
+/* "By hand": folded by default, so even switched on it takes one line. */
+details.by-hand { margin-top: 12px; max-width: 900px; }
+details.by-hand > summary { cursor: pointer; }
+.by-hand-table td { border-bottom: 0; padding: 4px 8px 4px 0; vertical-align: middle; }
+.by-hand-table td:first-child { width: 220px; }
+.by-hand-table .code-block { margin: 0; }
+.cmd-line { font: 13px/1.5 var(--mono); white-space: pre-wrap; word-break: break-all; }
+.cmd-extra { color: var(--text-muted); }
+.cmd-label-plain { font-size: 12px; font-weight: 600; color: var(--text-muted); }
+
+/* What Terraform will do to a resource. Destroy and replace are the dangerous ones. */
+.act { font-weight: 600; text-transform: lowercase; }
+.act-create { color: var(--ok-text); }
+.act-update, .act-read { color: var(--warn-text); }
+.act-replace, .act-destroy { color: var(--danger-text); }
+.review-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 12px; }
+.review-head .btn { margin-left: auto; }
+.plan-summary { margin: 0; font-weight: 600; }
+details.attrs > summary { cursor: pointer; color: var(--text-muted); }
+.attrs-table { margin: 8px 0 4px; }
+.attrs-table td { padding: 6px 8px 6px 0; font: 13px/1.4 var(--mono); word-break: break-all; vertical-align: top; }
+.attr-before { color: var(--danger-text); }
+.attr-after { color: var(--ok-text); }
+.attr-hidden { color: var(--text-muted); font-style: italic; }
+.kv { font-size: 13px; }
+
+/* Status words of Ansible, one color each, like the CLI's. */
+.st-ok { color: var(--ok-text); }
+.st-changed { color: var(--warn-text); }
+.st-failed, .st-unreachable { color: var(--danger-text); font-weight: 600; }
+.st-skipped { color: var(--text-muted); }
+
+.result { margin: 16px 0 0; }
+.result:empty { display: none; }
+.verdict { margin: 16px 0 0; padding: 12px 16px; border-radius: var(--radius); border: 1px solid var(--border-input); }
+.verdict.pass { border-color: var(--ok); }
+.verdict.fail { border-color: var(--danger); }
+.verdict h3 { margin: 0 0 4px; font-size: 14px; }
+.verdict ul { margin: 8px 0 0; padding-left: 20px; }
+
+/* ---------------------------------------------------- login and the account (IM1) */
+
+/* Before anybody is known there is nothing to navigate: the login page has no sidebar. */
+.logged-out .sidebar { display: none; }
+.login { max-width: 360px; margin: 12vh auto 0; }
+.login h1 { font-size: 24px; }
+.login .btn { width: 100%; margin-top: 24px; }
+.me-line { font-weight: 500; word-break: break-all; }
+.me-out { margin-top: 8px; }
+
+/* ---------------------------------------------------------- hosts (IM2) */
+
+/* A note in the corner while a connection to a host runs. */
+.toast {
+  position: fixed; right: 24px; bottom: 24px; z-index: 50;
+  padding: 10px 16px; border-radius: var(--radius);
+  background: var(--terminal-bg); color: var(--terminal-text);
+  box-shadow: var(--shadow-pop);
+}
+.dialog h3, .content h3 { margin: 16px 0 4px; font-size: 14px; font-weight: 600; }
+.me-gap { margin-top: 12px; }
+
+/* Groups, variables and the generated files (IM4) */
+.var-row { display: grid; grid-template-columns: 1fr 1.6fr auto; gap: 8px; align-items: center; margin-top: 8px; }
+.add-var { margin-top: 12px; }
+.choices { max-height: 320px; overflow-y: auto; padding: 4px 12px; margin-top: 4px; border: 1px solid var(--border-input); border-radius: var(--radius); }
+.choices .check { margin: 8px 0; }
+.choices .check .sub { margin-left: auto; }
+.file { margin: 4px 0 0; padding: 12px; overflow: auto; background: var(--bg-app); border-radius: var(--radius); font: 13px/1.5 var(--mono); white-space: pre; }
+input[type="search"].input { margin-top: 8px; }
+
+/* Profiles, preview and apply (IM5) */
+.role-box { margin-top: 16px; padding-top: 12px; border-top: 1px solid var(--border); }
+.role-box:first-of-type { border-top: 0; margin-top: 8px; }
+.role-desc { margin: 2px 0 0 24px; }
+.role-params { margin: 4px 0 0 24px; padding: 4px 12px 12px; border-left: 2px solid var(--border); }
+.preview-host { margin-top: 20px; }
+.preview-host h3 { margin-top: 0; }
+.preview-role { margin: 8px 0 0; }
+.preview-role ul { margin: 4px 0 0; padding-left: 20px; }
+.preview-role li { margin: 4px 0; }
+.verdict { margin: 16px 0 0; padding: 12px 16px; border-radius: var(--radius); border: 1px solid var(--border-input); }
+.verdict.pass { border-color: var(--ok); }
+.verdict.fail { border-color: var(--danger); }
+.verdict h3 { margin: 0 0 4px; }
+.verdict ul { margin: 8px 0 0; padding-left: 20px; }
+.dialog .facts { grid-template-columns: 160px 1fr; }
+.dialog .hint { margin: 4px 0 0 24px; color: var(--text-muted); }
+.notice strong { font-weight: 600; }
+.mono { overflow-wrap: anywhere; }
+
+@media (max-width: 900px) {
+  .banner { flex-direction: column; align-items: flex-start; }
+  .by-hand-table td:first-child { width: auto; }
+}
+
+/* IM6: the playbook editor, and the lists of the Access dialog. */
+textarea.input.editor { min-height: 320px; line-height: 1.5; tab-size: 2; white-space: pre; overflow: auto; }
+.dialog .cmd-label-plain { margin-top: 16px; }
+.dialog ol { margin: 8px 0 0; padding-left: 24px; }
+
+/* IM7: Proxmox settings form width. */
+.settings-form { max-width: 560px; }
