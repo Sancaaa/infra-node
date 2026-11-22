@@ -357,7 +357,7 @@ function showLogin(message) {
   const error = h('div', { class: 'form-error', role: 'alert' }, message || '');
   const submit = h('button', { class: 'btn btn-primary', type: 'submit' }, 'Log in');
   const form = h('form', { class: 'login' },
-    h('h1', {}, 'infra manager'),
+    h('h1', {}, 'infra-node'),
     h('p', { class: 'desc' }, 'Log in to manage your hosts.'),
     field('User name', name),
     field('Password', password),
