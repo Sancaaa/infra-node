@@ -132,6 +132,23 @@ func (l *loginLimiter) reset(key string) {
 	delete(l.byKey, key)
 }
 
+// undo takes back the single failure counted by begin for a request that was
+// not a failure (such as a valid password prompting for a one-time code),
+// without erasing earlier real failures.
+func (l *loginLimiter) undo(key string) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	f, ok := l.byKey[key]
+	if !ok {
+		return
+	}
+	if f.count <= 1 {
+		delete(l.byKey, key)
+		return
+	}
+	f.count--
+}
+
 // eventCap lets a limited number of "nobody is logged in" lines into History
 // per minute. Those rows are written for anyone who can reach the page, so
 // without a cap a script could fill the database with them. A real attack is

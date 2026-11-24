@@ -62,11 +62,48 @@ func (a *testApp) user(name, role string) (store.User, *http.Cookie) {
 
 func (a *testApp) session(u store.User) *http.Cookie {
 	a.t.Helper()
-	token, err := store.CreateSession(a.db, u.ID, "192.0.2.9", "test", time.Now())
+	token, err := store.CreateSession(a.db, u.ID, "192.0.2.9", "test", a.s.now())
 	if err != nil {
 		a.t.Fatal(err)
 	}
 	return &http.Cookie{Name: sessionCookie, Value: token}
+}
+
+// loginWithTOTP completes a full login (handling first-time TOTP enrollment
+// automatically) and returns the session cookie and TOTP secret.
+func (a *testApp) loginWithTOTP(username, password, secret string) (*http.Cookie, string) {
+	a.t.Helper()
+	rec := a.do("POST", "/api/login", nil, map[string]string{"username": username, "password": password})
+	want(a.t, rec, http.StatusOK)
+	if len(rec.Result().Cookies()) != 0 {
+		a.t.Fatal("step 1 login set a cookie before OTP verification")
+	}
+	var step1 struct {
+		TOTPSetup    bool   `json:"totp_setup"`
+		TOTPRequired bool   `json:"totp_required"`
+		Secret       string `json:"secret"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &step1); err != nil {
+		a.t.Fatalf("decode step 1 login: %v (%s)", err, rec.Body.String())
+	}
+	if step1.TOTPSetup {
+		secret = step1.Secret
+	} else if !step1.TOTPRequired {
+		a.t.Fatalf("expected totp_setup or totp_required, got: %s", rec.Body.String())
+	}
+	code, err := store.TOTPCode(secret, a.s.now())
+	if err != nil {
+		a.t.Fatalf("TOTPCode: %v", err)
+	}
+	rec2 := a.do("POST", "/api/login", nil, map[string]string{"username": username, "password": password, "code": code})
+	want(a.t, rec2, http.StatusOK)
+	for _, c := range rec2.Result().Cookies() {
+		if c.Name == sessionCookie {
+			return c, secret
+		}
+	}
+	a.t.Fatal("no session cookie after OTP login")
+	return nil, secret
 }
 
 // do sends a request straight to the routes (the cross-site check of Secure has
@@ -225,6 +262,9 @@ func TestLoginAndLogout(t *testing.T) {
 		if len(rec.Result().Cookies()) != 0 {
 			t.Error("a failed login set a cookie")
 		}
+		if strings.Contains(rec.Body.String(), "totp_") {
+			t.Errorf("wrong credentials leaked OTP state: %s", rec.Body.String())
+		}
 	}
 	if !a.has("login", store.ResultRefused) {
 		t.Error("the failed logins are not in History")
@@ -235,7 +275,28 @@ func TestLoginAndLogout(t *testing.T) {
 		}
 	}
 
-	rec := a.do("POST", "/api/login", nil, map[string]string{"username": " ADA ", "password": testPassword})
+	step1 := a.do("POST", "/api/login", nil, map[string]string{"username": " ADA ", "password": testPassword})
+	want(t, step1, http.StatusOK)
+	if cc := step1.Header().Get("Cache-Control"); cc != "no-store" {
+		t.Errorf("Cache-Control = %q, want no-store", cc)
+	}
+	if len(step1.Result().Cookies()) != 0 {
+		t.Fatal("totp_setup step set a session cookie")
+	}
+	var setup struct {
+		TOTPSetup  bool   `json:"totp_setup"`
+		Secret     string `json:"secret"`
+		OTPAuthURI string `json:"otpauth_uri"`
+	}
+	if err := json.Unmarshal(step1.Body.Bytes(), &setup); err != nil || !setup.TOTPSetup || setup.Secret == "" || !strings.HasPrefix(setup.OTPAuthURI, "otpauth://totp/infra-node:ada?secret=") {
+		t.Fatalf("unexpected totp_setup payload: %s (%v)", step1.Body.String(), err)
+	}
+
+	code, err := store.TOTPCode(setup.Secret, a.s.now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	rec := a.do("POST", "/api/login", nil, map[string]string{"username": " ADA ", "password": testPassword, "code": code})
 	want(t, rec, http.StatusOK)
 	var cookie *http.Cookie
 	for _, c := range rec.Result().Cookies() {
@@ -249,14 +310,17 @@ func TestLoginAndLogout(t *testing.T) {
 	if !cookie.HttpOnly || !cookie.Secure || cookie.SameSite != http.SameSiteStrictMode {
 		t.Errorf("cookie flags: HttpOnly=%v Secure=%v SameSite=%v", cookie.HttpOnly, cookie.Secure, cookie.SameSite)
 	}
-	if strings.Contains(rec.Body.String(), "hash") || strings.Contains(rec.Body.String(), testPassword) {
+	if strings.Contains(rec.Body.String(), "hash") || strings.Contains(rec.Body.String(), testPassword) || strings.Contains(rec.Body.String(), setup.Secret) {
 		t.Errorf("the login answer leaks: %s", rec.Body.String())
 	}
 
 	me := a.do("GET", "/api/me", cookie, nil)
 	want(t, me, http.StatusOK)
-	if !strings.Contains(me.Body.String(), `"username":"ada"`) || !strings.Contains(me.Body.String(), `"role":"admin"`) {
+	if !strings.Contains(me.Body.String(), `"username":"ada"`) || !strings.Contains(me.Body.String(), `"role":"admin"`) || !strings.Contains(me.Body.String(), `"totp_enabled":true`) {
 		t.Errorf("me: %s", me.Body.String())
+	}
+	if strings.Contains(me.Body.String(), setup.Secret) || strings.Contains(me.Body.String(), "totp_secret") {
+		t.Errorf("me leaks totp secret: %s", me.Body.String())
 	}
 
 	out := a.do("POST", "/api/logout", cookie, nil)
@@ -266,8 +330,8 @@ func TestLoginAndLogout(t *testing.T) {
 	}
 	// The session is gone on the server: the old cookie is worth nothing.
 	want(t, a.do("GET", "/api/me", cookie, nil), http.StatusUnauthorized)
-	if !a.has("login", store.ResultOK) || !a.has("logout", store.ResultOK) {
-		t.Error("login and logout are not in History")
+	if !a.has("totp.enable", store.ResultOK) || !a.has("login", store.ResultOK) || !a.has("logout", store.ResultOK) {
+		t.Error("totp.enable, login, and logout are not in History")
 	}
 }
 
@@ -302,7 +366,8 @@ func TestDisablingLogsAPersonOutAtOnce(t *testing.T) {
 	}
 
 	want(t, a.do("POST", "/api/users/"+strconv.FormatInt(alice.ID, 10)+"/enable", admin, nil), http.StatusNoContent)
-	want(t, a.do("POST", "/api/login", nil, map[string]string{"username": "alice", "password": testPassword}), http.StatusOK)
+	newCookie, _ := a.loginWithTOTP("alice", testPassword, "")
+	want(t, a.do("GET", "/api/me", newCookie, nil), http.StatusOK)
 }
 
 func TestNobodyDemotesOrDisablesThemselves(t *testing.T) {
@@ -310,10 +375,11 @@ func TestNobodyDemotesOrDisablesThemselves(t *testing.T) {
 	ada, admin := a.user("ada", store.RoleAdmin)
 	id := strconv.FormatInt(ada.ID, 10)
 
-	// The only admin cannot remove their own admin role, or disable themselves.
+	// The only admin cannot remove their own admin role, disable themselves, or reset their own password/OTP via /api/users.
 	want(t, a.do("POST", "/api/users/"+id+"/role", admin, map[string]string{"role": "viewer"}), http.StatusConflict)
 	want(t, a.do("POST", "/api/users/"+id+"/disable", admin, nil), http.StatusConflict)
 	want(t, a.do("POST", "/api/users/"+id+"/password", admin, map[string]string{"password": testPassword + "!"}), http.StatusConflict)
+	want(t, a.do("POST", "/api/users/"+id+"/totp-reset", admin, nil), http.StatusConflict)
 	if got, _ := store.GetUser(a.db, ada.ID); got.Role != store.RoleAdmin || got.Disabled {
 		t.Errorf("ada was changed: %+v", got)
 	}
@@ -370,7 +436,8 @@ func TestResetPasswordEndsThatPersonsSessions(t *testing.T) {
 	want(t, a.do("POST", "/api/users/"+strconv.FormatInt(alice.ID, 10)+"/password", admin, map[string]string{"password": "a brand new password"}), http.StatusNoContent)
 	want(t, a.do("GET", "/api/me", aliceCookie, nil), http.StatusUnauthorized)
 	want(t, a.do("POST", "/api/login", nil, map[string]string{"username": "alice", "password": testPassword}), http.StatusUnauthorized)
-	want(t, a.do("POST", "/api/login", nil, map[string]string{"username": "alice", "password": "a brand new password"}), http.StatusOK)
+	newCookie, _ := a.loginWithTOTP("alice", "a brand new password", "")
+	want(t, a.do("GET", "/api/me", newCookie, nil), http.StatusOK)
 }
 
 func TestChangingYourPasswordEndsYourOtherSessions(t *testing.T) {
@@ -389,7 +456,8 @@ func TestChangingYourPasswordEndsYourOtherSessions(t *testing.T) {
 	}
 	want(t, a.do("GET", "/api/me", here, nil), http.StatusOK)
 	want(t, a.do("GET", "/api/me", elsewhere, nil), http.StatusUnauthorized)
-	want(t, a.do("POST", "/api/login", nil, map[string]string{"username": "alice", "password": "another long password"}), http.StatusOK)
+	newCookie, _ := a.loginWithTOTP("alice", "another long password", "")
+	want(t, a.do("GET", "/api/me", newCookie, nil), http.StatusOK)
 	for _, e := range a.events() {
 		if strings.Contains(e.Detail, "another long password") || strings.Contains(e.Detail, testPassword) {
 			t.Errorf("a password is in History: %+v", e)

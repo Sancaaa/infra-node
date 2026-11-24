@@ -66,20 +66,22 @@ func SessionUser(db *sql.DB, token string, now time.Time) (User, error) {
 		return User{}, ErrNotFound
 	}
 	var u User
+	var totpEnabled int
 	var lastUsed int64
 	// "disabled = 0" is checked on every request, not only when a user is
 	// disabled: a disabled user is out at once, whatever happened to the rows.
 	err := db.QueryRow(
-		`SELECT u.id, u.username, u.role, u.created_at, s.last_used_at
+		`SELECT u.id, u.username, u.role, u.totp_enabled, u.created_at, s.last_used_at
 		 FROM sessions s JOIN users u ON u.id = s.user_id
 		 WHERE s.id = ? AND s.created_at > ? AND u.disabled = 0`,
-		TokenID(token), now.Add(-SessionLifetime).Unix()).Scan(&u.ID, &u.Username, &u.Role, &u.CreatedAt, &lastUsed)
+		TokenID(token), now.Add(-SessionLifetime).Unix()).Scan(&u.ID, &u.Username, &u.Role, &totpEnabled, &u.CreatedAt, &lastUsed)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
 	if err != nil {
 		return User{}, fmt.Errorf("look up the session: %w", err)
 	}
+	u.TOTPEnabled = totpEnabled == 1
 
 	// "Last used" is for the Profile page. Written at most once a minute: a
 	// database write on every request would be a lot for a timestamp.

@@ -96,6 +96,25 @@ func (s *Server) resetUserPassword(w http.ResponseWriter, r *http.Request, me st
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// resetUserTOTP clears somebody else's authenticator and ends all of their
+// sessions, so they enroll a new authenticator app on their next login.
+func (s *Server) resetUserTOTP(w http.ResponseWriter, r *http.Request, me store.User) {
+	target, ok := s.loadTarget(w, r)
+	if !ok {
+		return
+	}
+	if s.refuseSelf(w, r, me, target, "user.totp.reset", "Reset your own authenticator on your Profile page.") {
+		return
+	}
+
+	if err := store.ResetTOTP(s.db, target.ID); err != nil {
+		s.failUserChange(w, r, me, "user.totp.reset", target, err)
+		return
+	}
+	s.record(r, me, "user.totp.reset", "user "+target.Username, store.ResultOK, "their sessions were ended")
+	w.WriteHeader(http.StatusNoContent)
+}
+
 func (s *Server) disableUser(w http.ResponseWriter, r *http.Request, me store.User) {
 	target, ok := s.loadTarget(w, r)
 	if !ok {

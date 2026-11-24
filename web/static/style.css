@@ -439,8 +439,13 @@ details.attrs > summary { cursor: pointer; color: var(--text-muted); }
 /* Before anybody is known there is nothing to navigate: the login page has no sidebar. */
 .logged-out .sidebar { display: none; }
 .login { max-width: 360px; margin: 12vh auto 0; }
+.login.login-wide { max-width: 440px; }
 .login h1 { font-size: 24px; }
 .login .btn { width: 100%; margin-top: 24px; }
+.login .btn + .btn { margin-top: 8px; }
+.login .code-block { margin: 4px 0 12px; }
+.login .code-block .btn { width: auto; margin-top: 0; flex: none; }
+.login .cmd-label-plain { margin-top: 16px; }
 .me-line { font-weight: 500; word-break: break-all; }
 .me-out { margin-top: 8px; }
 

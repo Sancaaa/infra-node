@@ -232,6 +232,14 @@ var migrations = []string{
 		created_at     INTEGER NOT NULL
 	)`,
 	`CREATE UNIQUE INDEX machines_host ON machines (host_id) WHERE host_id IS NOT NULL`,
+
+	// 28 to 30 (TOTP): mandatory two-factor authentication for every user.
+	// totp_secret is an unpadded Base32 secret (never part of User and never
+	// returned once enabled); totp_enabled becomes 1 after the first valid code;
+	// totp_last_step blocks replaying a code in the same 30-second step.
+	`ALTER TABLE users ADD COLUMN totp_secret TEXT NOT NULL DEFAULT ''`,
+	`ALTER TABLE users ADD COLUMN totp_enabled INTEGER NOT NULL DEFAULT 0`,
+	`ALTER TABLE users ADD COLUMN totp_last_step INTEGER NOT NULL DEFAULT 0`,
 }
 
 // migrate brings the database up to date. It runs every time the dashboard

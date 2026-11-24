@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -51,7 +52,7 @@ func (s *Server) sessionUser(r *http.Request) (store.User, error) {
 	if err != nil {
 		return store.User{}, store.ErrNotFound
 	}
-	return store.SessionUser(s.db, cookie.Value, time.Now())
+	return store.SessionUser(s.db, cookie.Value, s.now())
 }
 
 // sessionToken is the token of the session this request is using.
@@ -92,9 +93,11 @@ func refuseWhileLimited(w http.ResponseWriter, l *loginLimiter, key string) bool
 }
 
 func (s *Server) login(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Cache-Control", "no-store")
 	var req struct {
 		Username string `json:"username"`
 		Password string `json:"password"`
+		Code     string `json:"code"`
 	}
 	if !readJSON(w, r, &req) {
 		return
@@ -128,7 +131,7 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 
 	if !found || !right || user.Disabled {
 		// One message for every reason, so the answer reveals neither which user
-		// names exist nor which accounts are disabled. History tells the admins.
+		// names exist nor which accounts are disabled, nor their OTP state.
 		// The name typed is not written down: people sometimes type their password
 		// into that field.
 		if found && right {
@@ -140,7 +143,68 @@ func (s *Server) login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	token, err := store.CreateSession(s.db, user.ID, ip, r.UserAgent(), time.Now())
+	// Mandatory TOTP (RFC 6238) for every account. Only reached after password
+	// verification, so wrong credentials never leak enrollment status.
+	secret, enabled, err := store.EnsureTOTPSecret(s.db, user.ID)
+	if err != nil {
+		serverError(w, "load authenticator state", err)
+		return
+	}
+
+	now := s.now()
+	code := strings.TrimSpace(req.Code)
+	if enabled {
+		if code == "" {
+			s.loginLimit.undo(ip)
+			writeJSON(w, http.StatusOK, map[string]any{"totp_required": true})
+			return
+		}
+		step, ok := store.VerifyTOTP(secret, code, now)
+		if !ok {
+			s.recordCapped(r, user, "login", store.ResultRefused, "invalid one-time code")
+			writeError(w, http.StatusUnauthorized, "That one-time code is not valid.")
+			return
+		}
+		used, err := store.UseTOTPStep(s.db, user.ID, step)
+		if err != nil {
+			serverError(w, "record one-time code", err)
+			return
+		}
+		if !used {
+			s.recordCapped(r, user, "login", store.ResultRefused, "one-time code already used")
+			writeError(w, http.StatusUnauthorized, "That one-time code is not valid.")
+			return
+		}
+	} else {
+		if code == "" {
+			s.loginLimit.undo(ip)
+			writeJSON(w, http.StatusOK, map[string]any{
+				"totp_setup":  true,
+				"secret":      secret,
+				"otpauth_uri": store.TOTPURI(store.TOTPIssuer, user.Username, secret),
+			})
+			return
+		}
+		step, ok := store.VerifyTOTP(secret, code, now)
+		if !ok {
+			s.recordCapped(r, user, "login", store.ResultRefused, "invalid one-time code during setup")
+			writeError(w, http.StatusUnauthorized, "That one-time code is not valid.")
+			return
+		}
+		if err := store.EnableTOTP(s.db, user.ID, step); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				s.recordCapped(r, user, "login", store.ResultRefused, "one-time code already used")
+				writeError(w, http.StatusUnauthorized, "That one-time code is not valid.")
+				return
+			}
+			serverError(w, "enable authenticator", err)
+			return
+		}
+		user.TOTPEnabled = true
+		s.record(r, user, "totp.enable", "", store.ResultOK, "")
+	}
+
+	token, err := store.CreateSession(s.db, user.ID, ip, r.UserAgent(), now)
 	if err != nil {
 		serverError(w, "create a session", err)
 		return

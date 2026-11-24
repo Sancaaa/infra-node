@@ -367,11 +367,21 @@ function showLogin(message) {
     event.preventDefault();
     submit.disabled = true;
     error.textContent = '';
-    const r = await api('POST', '/api/login', { username: name.value, password: password.value });
+    const username = name.value;
+    const pass = password.value;
+    const r = await api('POST', '/api/login', { username, password: pass });
     if (!r.ok) {
       error.textContent = r.data.error;
       password.value = '';
       submit.disabled = false;
+      return;
+    }
+    if (r.data.totp_setup) {
+      showTOTPSetup(username, pass, r.data.secret, r.data.otpauth_uri);
+      return;
+    }
+    if (r.data.totp_required) {
+      showTOTPCode(username, pass);
       return;
     }
     me = r.data;
@@ -382,6 +392,72 @@ function showLogin(message) {
   nav.replaceChildren();
   document.getElementById('sidebar-foot').replaceChildren();
   name.focus();
+}
+
+function showTOTPSetup(username, password, secret, otpauthURI) {
+  const code = input({ type: 'text', name: 'code', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '8', placeholder: '123456', required: '' });
+  const error = h('div', { class: 'form-error', role: 'alert' });
+  const submit = h('button', { class: 'btn btn-primary', type: 'submit' }, 'Verify and log in');
+  const back = button('Back', 'btn', () => showLogin());
+  const form = h('form', { class: 'login login-wide' },
+    h('h1', {}, 'infra-node'),
+    h('p', { class: 'desc' }, 'Set up two-factor authentication before signing in. Add this key to an authenticator app, then enter the 6-digit code.'),
+    h('div', { class: 'cmd-label-plain' }, 'Secret key (Base32)'),
+    codeBlock(secret),
+    h('div', { class: 'cmd-label-plain' }, 'Authenticator URI'),
+    codeBlock(otpauthURI),
+    field('One-time code', code, '6 digits from your authenticator app.'),
+    error, submit, back);
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    error.textContent = '';
+    const r = await api('POST', '/api/login', { username, password, code: code.value });
+    if (!r.ok) {
+      error.textContent = r.data.error;
+      code.value = '';
+      code.focus();
+      submit.disabled = false;
+      return;
+    }
+    me = r.data;
+    showApp();
+  });
+
+  view.replaceChildren(form);
+  code.focus();
+}
+
+function showTOTPCode(username, password) {
+  const code = input({ type: 'text', name: 'code', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '8', placeholder: '123456', required: '' });
+  const error = h('div', { class: 'form-error', role: 'alert' });
+  const submit = h('button', { class: 'btn btn-primary', type: 'submit' }, 'Log in');
+  const back = button('Back', 'btn', () => showLogin());
+  const form = h('form', { class: 'login' },
+    h('h1', {}, 'infra-node'),
+    h('p', { class: 'desc' }, 'Enter the 6-digit code from your authenticator app.'),
+    field('One-time code', code),
+    error, submit, back);
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    submit.disabled = true;
+    error.textContent = '';
+    const r = await api('POST', '/api/login', { username, password, code: code.value });
+    if (!r.ok) {
+      error.textContent = r.data.error;
+      code.value = '';
+      code.focus();
+      submit.disabled = false;
+      return;
+    }
+    me = r.data;
+    showApp();
+  });
+
+  view.replaceChildren(form);
+  code.focus();
 }
 
 function sessionEnded() {
@@ -1945,10 +2021,12 @@ async function usersPage(container) {
       h('td', { class: 'name' }, u.username, isMe ? h('span', { class: 'tag' }, 'you') : null),
       h('td', {}, u.role),
       h('td', {}, dot(u.disabled ? 'off' : 'ok'), u.disabled ? 'Disabled' : 'Active'),
+      h('td', { class: 'sub' }, u.totp_enabled ? 'Enabled' : 'Not set up'),
       h('td', { class: 'num sub' }, when(u.created_at)),
       h('td', { class: 'col-act' }, isMe ? null : rowMenu([
         { label: 'Change role…', run: () => changeRoleDialog(u) },
         { label: 'Reset password…', run: () => resetPasswordDialog(u) },
+        { label: 'Reset OTP…', run: () => resetOTPDialog(u) },
         u.disabled
           ? { label: 'Enable', run: async () => { await api('POST', base + '/enable'); route(); } }
           : { label: 'Disable…', danger: true, run: () => disableDialog(u) },
@@ -1959,7 +2037,7 @@ async function usersPage(container) {
     pageHead('Users', 'The people who can log in, and what each may do.',
       button('Create user', 'btn btn-primary', createUserDialog)),
     h('table', {},
-      h('thead', {}, h('tr', {}, th('Name'), th('Role'), th('Status'), th('Created'), th('', 'col-act'))),
+      h('thead', {}, h('tr', {}, th('Name'), th('Role'), th('Status'), th('OTP'), th('Created'), th('', 'col-act'))),
       h('tbody', {}, rows)));
 }
 
@@ -2014,6 +2092,20 @@ function resetPasswordDialog(u) {
   });
 }
 
+function resetOTPDialog(u) {
+  openDialog({
+    title: 'Reset authenticator for ' + u.username + '?',
+    submitLabel: 'Reset OTP',
+    danger: true,
+    body: [h('p', {}, 'They are signed out everywhere at once and must set up a new authenticator app on their next login.')],
+    onSubmit: async () => {
+      const message = await submitting('POST', '/api/users/' + u.id + '/totp-reset');
+      if (!message) route();
+      return message;
+    },
+  });
+}
+
 function disableDialog(u) {
   openDialog({
     title: 'Disable ' + u.username + '?',
@@ -2045,7 +2137,10 @@ async function profilePage(container) {
     h('dl', { class: 'facts' },
       h('dt', {}, 'User name'), h('dd', {}, me.username),
       h('dt', {}, 'Role'), h('dd', {}, me.role, h('span', { class: 'sub' }, ' — ' + ROLE_HELP[me.role])),
-      h('dt', {}, 'Password'), h('dd', {}, button('Change password…', 'btn btn-small', changePasswordDialog))),
+      h('dt', {}, 'Password'), h('dd', {}, button('Change password…', 'btn btn-small', changePasswordDialog)),
+      h('dt', {}, 'Two-factor authentication'), h('dd', {},
+        me.totp_enabled ? 'Enabled (TOTP)' : 'Not set up',
+        me.totp_enabled ? button('Reset authenticator…', 'btn btn-small', resetMyTOTPDialog) : null)),
     sectionHead('Sessions', 'Where you are logged in. A session ends after seven days.', signOutOthers),
     r.ok
       ? h('table', {},
@@ -2075,6 +2170,27 @@ function changePasswordDialog() {
       const r = await api('POST', '/api/me/password', { current: current.value, new: next.value });
       if (!r.ok) return r.data.error;
       route();
+      return null;
+    },
+  });
+}
+
+function resetMyTOTPDialog() {
+  const password = input({ type: 'password', autocomplete: 'current-password', required: '' });
+  const code = input({ type: 'text', inputmode: 'numeric', autocomplete: 'one-time-code', maxlength: '8', placeholder: '123456', required: '' });
+  openDialog({
+    title: 'Reset your authenticator',
+    submitLabel: 'Reset authenticator',
+    danger: true,
+    body: [
+      h('p', {}, 'This signs you out everywhere and clears your current authenticator key. You will set up a new authenticator on your next login.'),
+      field('Current password', password),
+      field('Current one-time code', code, 'Enter the 6-digit code from your current authenticator app.'),
+    ],
+    onSubmit: async () => {
+      const r = await api('POST', '/api/me/totp/reset', { password: password.value, code: code.value });
+      if (!r.ok) return r.data.error;
+      showLogin('Your authenticator was reset. Log in to set up a new one.');
       return null;
     },
   });

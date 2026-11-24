@@ -38,14 +38,15 @@ var (
 
 var usernameRe = regexp.MustCompile(`^[a-z0-9._-]{1,32}$`)
 
-// User is a person who can log in. The password hash is never part of it: it
-// is read by the two functions that need it, and goes nowhere else.
+// User is a person who can log in. The password hash and TOTP secret are never
+// part of it: they are read by the functions that need them, and go nowhere else.
 type User struct {
-	ID        int64  `json:"id"`
-	Username  string `json:"username"`
-	Role      string `json:"role"`
-	Disabled  bool   `json:"disabled"`
-	CreatedAt int64  `json:"created_at"`
+	ID          int64  `json:"id"`
+	Username    string `json:"username"`
+	Role        string `json:"role"`
+	Disabled    bool   `json:"disabled"`
+	TOTPEnabled bool   `json:"totp_enabled"`
+	CreatedAt   int64  `json:"created_at"`
 }
 
 func ValidRole(role string) bool {
@@ -75,7 +76,7 @@ func isUniqueViolation(err error) bool {
 	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
 }
 
-const userColumns = `id, username, role, disabled, created_at`
+const userColumns = `id, username, role, disabled, totp_enabled, created_at`
 
 // CreateUser adds a user. The CLI creates the first admin with it, the Users
 // page everyone after.
@@ -115,9 +116,9 @@ func CreateUser(db *sql.DB, username, password, role string) (User, error) {
 func FindForLogin(db *sql.DB, username string) (User, string, error) {
 	var u User
 	var hash string
-	var disabled int
+	var disabled, totpEnabled int
 	err := db.QueryRow(`SELECT `+userColumns+`, password_hash FROM users WHERE username = ?`,
-		NormalizeUsername(username)).Scan(&u.ID, &u.Username, &u.Role, &disabled, &u.CreatedAt, &hash)
+		NormalizeUsername(username)).Scan(&u.ID, &u.Username, &u.Role, &disabled, &totpEnabled, &u.CreatedAt, &hash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, "", ErrNotFound
 	}
@@ -125,6 +126,7 @@ func FindForLogin(db *sql.DB, username string) (User, string, error) {
 		return User{}, "", fmt.Errorf("look up the user: %w", err)
 	}
 	u.Disabled = disabled == 1
+	u.TOTPEnabled = totpEnabled == 1
 	return u, hash, nil
 }
 
@@ -143,9 +145,9 @@ func PasswordHash(db *sql.DB, id int64) (string, error) {
 
 func GetUser(db *sql.DB, id int64) (User, error) {
 	var u User
-	var disabled int
+	var disabled, totpEnabled int
 	err := db.QueryRow(`SELECT `+userColumns+` FROM users WHERE id = ?`, id).
-		Scan(&u.ID, &u.Username, &u.Role, &disabled, &u.CreatedAt)
+		Scan(&u.ID, &u.Username, &u.Role, &disabled, &totpEnabled, &u.CreatedAt)
 	if errors.Is(err, sql.ErrNoRows) {
 		return User{}, ErrNotFound
 	}
@@ -153,6 +155,7 @@ func GetUser(db *sql.DB, id int64) (User, error) {
 		return User{}, fmt.Errorf("read the user: %w", err)
 	}
 	u.Disabled = disabled == 1
+	u.TOTPEnabled = totpEnabled == 1
 	return u, nil
 }
 
@@ -166,11 +169,12 @@ func ListUsers(db *sql.DB) ([]User, error) {
 	users := []User{}
 	for rows.Next() {
 		var u User
-		var disabled int
-		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &disabled, &u.CreatedAt); err != nil {
+		var disabled, totpEnabled int
+		if err := rows.Scan(&u.ID, &u.Username, &u.Role, &disabled, &totpEnabled, &u.CreatedAt); err != nil {
 			return nil, fmt.Errorf("read a user: %w", err)
 		}
 		u.Disabled = disabled == 1
+		u.TOTPEnabled = totpEnabled == 1
 		users = append(users, u)
 	}
 	return users, rows.Err()
@@ -257,4 +261,108 @@ func expectOne(res sql.Result, db *sql.DB, id int64) error {
 		return err // ErrNotFound, or a real error
 	}
 	return ErrLastAdmin
+}
+
+// TOTPSecret reads a user's stored TOTP secret and whether TOTP is enabled.
+func TOTPSecret(db *sql.DB, userID int64) (string, bool, error) {
+	var secret string
+	var enabled int
+	err := db.QueryRow(`SELECT totp_secret, totp_enabled FROM users WHERE id = ?`, userID).Scan(&secret, &enabled)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", false, ErrNotFound
+	}
+	if err != nil {
+		return "", false, fmt.Errorf("read totp state: %w", err)
+	}
+	return secret, enabled == 1, nil
+}
+
+// EnsureTOTPSecret returns a user's TOTP secret and enabled flag. When TOTP is
+// not yet enabled and no pending secret exists, it generates and stores one
+// atomically so concurrent first-time logins see the same secret.
+func EnsureTOTPSecret(db *sql.DB, userID int64) (string, bool, error) {
+	secret, enabled, err := TOTPSecret(db, userID)
+	if err != nil || enabled || secret != "" {
+		return secret, enabled, err
+	}
+	candidate, err := GenerateTOTPSecret()
+	if err != nil {
+		return "", false, err
+	}
+	if _, err := db.Exec(
+		`UPDATE users SET totp_secret = ? WHERE id = ? AND totp_enabled = 0 AND totp_secret = ''`,
+		candidate, userID,
+	); err != nil {
+		return "", false, fmt.Errorf("store totp secret: %w", err)
+	}
+	return TOTPSecret(db, userID)
+}
+
+// EnableTOTP activates TOTP for a user after their first valid code and records
+// the step so that same code cannot be replayed.
+func EnableTOTP(db *sql.DB, userID int64, step int64) error {
+	res, err := db.Exec(
+		`UPDATE users SET totp_enabled = 1, totp_last_step = ? WHERE id = ? AND totp_secret != '' AND totp_enabled = 0`,
+		step, userID,
+	)
+	if err != nil {
+		return fmt.Errorf("enable totp: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("count changed rows: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// UseTOTPStep atomically advances a user's last accepted TOTP step. It returns
+// false when the step was already used (or an earlier step was replayed).
+func UseTOTPStep(db *sql.DB, userID int64, step int64) (bool, error) {
+	res, err := db.Exec(
+		`UPDATE users SET totp_last_step = ? WHERE id = ? AND totp_enabled = 1 AND totp_last_step < ?`,
+		step, userID, step,
+	)
+	if err != nil {
+		return false, fmt.Errorf("record totp step: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("count changed rows: %w", err)
+	}
+	return n == 1, nil
+}
+
+// ResetTOTP clears a user's TOTP secret/state and deletes all of their sessions
+// in one transaction so they must enroll a new authenticator on next login.
+func ResetTOTP(db *sql.DB, userID int64) error {
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("begin totp reset: %w", err)
+	}
+	defer tx.Rollback()
+
+	res, err := tx.Exec(
+		`UPDATE users SET totp_secret = '', totp_enabled = 0, totp_last_step = 0 WHERE id = ?`,
+		userID,
+	)
+	if err != nil {
+		return fmt.Errorf("clear totp: %w", err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("count changed rows: %w", err)
+	}
+	if n == 0 {
+		return ErrNotFound
+	}
+	if _, err := tx.Exec(`DELETE FROM sessions WHERE user_id = ?`, userID); err != nil {
+		return fmt.Errorf("delete the sessions: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit totp reset: %w", err)
+	}
+	return nil
 }

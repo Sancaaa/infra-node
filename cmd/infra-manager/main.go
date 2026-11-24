@@ -37,6 +37,7 @@ Usage:
   infra-manager service install [-listen ADDR]     install and start the systemd service (Linux, root)
   infra-manager service uninstall                  stop and remove the service
   infra-manager user create --admin [-data DIR] NAME   create the first admin (asks for the password)
+  infra-manager user totp-reset [-data DIR] NAME       reset a user's authenticator and end their sessions
   infra-manager version
 
 Defaults: -data ` + defaultData + `  -listen ` + defaultListen + `

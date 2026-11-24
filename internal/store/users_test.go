@@ -216,3 +216,74 @@ func TestHistoryPagesByID(t *testing.T) {
 		t.Error("At was not set")
 	}
 }
+
+func TestUserTOTPLifecycle(t *testing.T) {
+	db := newTestDB(t)
+	u := mustUser(t, db, "alice", RoleOperator)
+	other := mustUser(t, db, "bob", RoleViewer)
+
+	if u.TOTPEnabled {
+		t.Fatal("new user should not have TOTP enabled")
+	}
+	// Enabling without a secret is rejected.
+	if err := EnableTOTP(db, u.ID, 100); !errors.Is(err, ErrNotFound) {
+		t.Errorf("EnableTOTP before EnsureTOTPSecret: %v, want ErrNotFound", err)
+	}
+
+	// EnsureTOTPSecret generates once and stays stable across calls.
+	sec1, enabled, err := EnsureTOTPSecret(db, u.ID)
+	if err != nil || enabled || sec1 == "" {
+		t.Fatalf("EnsureTOTPSecret(1) = (%q, %v, %v)", sec1, enabled, err)
+	}
+	sec2, enabled, err := EnsureTOTPSecret(db, u.ID)
+	if err != nil || enabled || sec2 != sec1 {
+		t.Fatalf("EnsureTOTPSecret(2) = (%q, %v, %v), want %q", sec2, enabled, err, sec1)
+	}
+
+	// EnableTOTP marks enabled and records last_step; second call is rejected.
+	if err := EnableTOTP(db, u.ID, 100); err != nil {
+		t.Fatalf("EnableTOTP: %v", err)
+	}
+	if err := EnableTOTP(db, u.ID, 101); !errors.Is(err, ErrNotFound) {
+		t.Errorf("second EnableTOTP = %v, want ErrNotFound", err)
+	}
+	if got, err := GetUser(db, u.ID); err != nil || !got.TOTPEnabled {
+		t.Errorf("GetUser after EnableTOTP: %+v %v", got, err)
+	}
+
+	// UseTOTPStep rejects replay (same or earlier step) and accepts strictly newer step.
+	if ok, err := UseTOTPStep(db, u.ID, 100); err != nil || ok {
+		t.Errorf("UseTOTPStep(100 replay) = (%v, %v), want (false, nil)", ok, err)
+	}
+	if ok, err := UseTOTPStep(db, u.ID, 99); err != nil || ok {
+		t.Errorf("UseTOTPStep(99 older) = (%v, %v), want (false, nil)", ok, err)
+	}
+	if ok, err := UseTOTPStep(db, u.ID, 101); err != nil || !ok {
+		t.Errorf("UseTOTPStep(101) = (%v, %v), want (true, nil)", ok, err)
+	}
+
+	// Create sessions for both users; ResetTOTP clears only alice's TOTP and sessions.
+	now := time.Now()
+	aliceTok, _ := CreateSession(db, u.ID, "10.0.0.1", "a", now)
+	bobTok, _ := CreateSession(db, other.ID, "10.0.0.2", "b", now)
+	if got, err := SessionUser(db, aliceTok, now); err != nil || !got.TOTPEnabled {
+		t.Errorf("SessionUser before reset: %+v %v", got, err)
+	}
+
+	if err := ResetTOTP(db, u.ID); err != nil {
+		t.Fatalf("ResetTOTP: %v", err)
+	}
+	if _, err := SessionUser(db, aliceTok, now); !errors.Is(err, ErrNotFound) {
+		t.Errorf("alice session survived ResetTOTP: %v", err)
+	}
+	if _, err := SessionUser(db, bobTok, now); err != nil {
+		t.Errorf("bob session was affected by alice ResetTOTP: %v", err)
+	}
+	secAfter, enabledAfter, err := TOTPSecret(db, u.ID)
+	if err != nil || enabledAfter || secAfter != "" {
+		t.Errorf("TOTPSecret after reset = (%q, %v, %v)", secAfter, enabledAfter, err)
+	}
+	if err := ResetTOTP(db, 9999); !errors.Is(err, ErrNotFound) {
+		t.Errorf("ResetTOTP unknown user = %v, want ErrNotFound", err)
+	}
+}

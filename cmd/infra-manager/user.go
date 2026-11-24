@@ -10,17 +10,28 @@ import (
 	"infra-manager/internal/store"
 )
 
-// userCommand is `infra-manager user create --admin NAME`: the first admin,
-// made before there is anybody to log in and make others. Everyone after that
-// is created on the Users page.
+// userCommand handles local account administration: creating the first admin
+// (`user create --admin NAME`) and resetting a locked-out user's authenticator
+// (`user totp-reset NAME`).
 func userCommand(args []string) error {
-	if len(args) == 0 || args[0] != "create" {
-		return errors.New("usage: infra-manager user create --admin [-data DIR] NAME")
+	if len(args) == 0 {
+		return errors.New("usage:\n  infra-manager user create --admin [-data DIR] NAME\n  infra-manager user totp-reset [-data DIR] NAME")
 	}
+	switch args[0] {
+	case "create":
+		return userCreate(args[1:])
+	case "totp-reset":
+		return userTOTPReset(args[1:])
+	default:
+		return errors.New("usage:\n  infra-manager user create --admin [-data DIR] NAME\n  infra-manager user totp-reset [-data DIR] NAME")
+	}
+}
+
+func userCreate(args []string) error {
 	flags := flag.NewFlagSet("user create", flag.ExitOnError)
 	dataDir := flags.String("data", defaultData, "the folder with the database")
 	admin := flags.Bool("admin", false, "create an admin (the only kind this command makes)")
-	flags.Parse(args[1:]) // ExitOnError: a bad flag prints the usage and stops
+	flags.Parse(args) // ExitOnError: a bad flag prints the usage and stops
 
 	if flags.NArg() != 1 {
 		return errors.New("give the user name once, after the flags: infra-manager user create --admin NAME")
@@ -58,6 +69,57 @@ func userCommand(args []string) error {
 		return err
 	}
 	fmt.Printf("Created the admin %q. Log in on the dashboard's page with that name and password.\n", u.Username)
+	return nil
+}
+
+func userTOTPReset(args []string) error {
+	flags := flag.NewFlagSet("user totp-reset", flag.ContinueOnError)
+	dataDir := flags.String("data", defaultData, "the folder with the database")
+	if err := flags.Parse(args); err != nil {
+		return err
+	}
+	if flags.NArg() != 1 {
+		return errors.New("give the user name once, after the flags: infra-manager user totp-reset [-data DIR] NAME")
+	}
+
+	// Same non-root safety check as user create: SQLite -wal/-shm files must stay
+	// owned by the service user.
+	if os.Geteuid() == 0 {
+		return errors.New("do not run this as root. Run it as the service's user:\n  sudo -u infra-manager infra-manager user totp-reset " + flags.Arg(0))
+	}
+
+	dbPath := filepath.Join(*dataDir, store.DBFile)
+	if _, err := os.Stat(dbPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("no database found at %s (pass -data DIR)", dbPath)
+		}
+		return err
+	}
+	db, err := store.OpenDB(dbPath)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	name := store.NormalizeUsername(flags.Arg(0))
+	u, _, err := store.FindForLogin(db, name)
+	if errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("no user named %q", name)
+	}
+	if err != nil {
+		return err
+	}
+	if err := store.ResetTOTP(db, u.ID); err != nil {
+		return err
+	}
+	_ = store.AddEvent(db, store.Event{
+		Username: "cli",
+		Action:   "user.totp.reset",
+		Target:   "user " + u.Username,
+		Result:   store.ResultOK,
+		Detail:   "reset via CLI; their sessions were ended",
+	})
+	fmt.Printf("Reset authenticator for %q and ended all of their sessions. They will set up a new authenticator on next login.\n", u.Username)
 	return nil
 }
 

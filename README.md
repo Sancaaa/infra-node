@@ -20,7 +20,7 @@ Ships as a single static `CGO_ENABLED=0` Go binary with an embedded zero-build w
 | **Proxmox & Terraform** | Proxmox VE API discovery (nodes, storages, bridges, templates), LXC container create/resize/start/stop/remove/rebuild (`-replace`) via `bpg/proxmox`, single-use 15-minute reviewed plans, automatic post-create host enrollment, out-of-band drift detection (`-refresh-only`) with scoped accept/revert, zero-change **Adopt** via `import`, and 30-deep state backups with restore preview. |
 | **Access, secrets & playbooks** | Managed SSH public key grants with exact **Revoke everywhere**, write-only `ansible-vault` secrets (`secret:<name>`), and syntax-checked custom playbooks. |
 | **Code & show-command mode** | Read-only viewer for all generated Ansible and Terraform files, plus a sidebar **Show commands** toggle displaying the exact CLI commands behind actions. |
-| **Users, roles & history** | Three-tier RBAC (`viewer < operator < admin`), self-service password/session management, and full SQLite action history. |
+| **Users, roles & history** | Three-tier RBAC (`viewer < operator < admin`), mandatory RFC 6238 TOTP two-factor authentication for all accounts (first-login enrollment, self-service & admin/CLI OTP reset), self-service password/session management, and full SQLite action history. |
 
 ## Roles
 
@@ -34,7 +34,7 @@ Permissions are enforced centrally in `internal/web/permissions.go` (`can(user, 
 
 ## Security Model
 
-- **Default-deny auth & sessions**: Every `/api/*` route except `POST /api/login` requires a valid session. Passwords use `bcrypt` (10–72 bytes); session cookies are `HttpOnly`, `Secure`, and `SameSite=Strict` storing 256-bit random tokens hashed with SHA-256 (7-day fixed lifetime). Login failures are rate-limited per IP with bounded memory tracking.
+- **Default-deny auth, mandatory TOTP & sessions**: Every `/api/*` route except `POST /api/login` requires a valid session. Passwords use `bcrypt` (10–72 bytes), and every user must enroll RFC 6238 TOTP (6-digit HMAC-SHA1, 30s period, ±1 step window, atomic replay rejection) on first login before receiving a session cookie; OTP status is never revealed before password verification. Session cookies are `HttpOnly`, `Secure`, and `SameSite=Strict` storing 256-bit random tokens hashed with SHA-256 (7-day fixed lifetime). Login and OTP failures are rate-limited with bounded memory tracking, and `/api/login` sends `Cache-Control: no-store`.
 - **CSRF & CSP**: All mutations use `POST` and require same-origin `Sec-Fetch-Site` and matching `Origin` (host and scheme). Embedded assets use strict DOM construction (no `innerHTML`) and a strict `Content-Security-Policy`.
 - **Write-only secrets & scrubbing**:
   - Host enrollment passwords are used once to install the SSH key and discarded immediately.
@@ -66,6 +66,7 @@ infra-manager serve [-data DIR] [-listen ADDR]         # defaults: /var/lib/infr
 infra-manager service install [-listen ADDR]           # install and start systemd unit (Linux, root)
 infra-manager service uninstall                        # stop and remove systemd unit
 infra-manager user create --admin [-data DIR] <name>   # create initial admin (run as service user on VPS)
+infra-manager user totp-reset [-data DIR] <name>       # reset a user's TOTP authenticator and revoke sessions
 infra-manager version
 ```
 
@@ -77,7 +78,7 @@ Deploy behind Caddy for automatic HTTPS using `start.sh` (`sudo sh start.sh`, `s
 
 ```
 cmd/infra-manager/   CLI entrypoint, systemd installer, listen validation, tty password reader
-internal/store/      SQLite DB (16 tables, 27 migrations) for users, sessions, hosts, profiles, machines, history
+internal/store/      SQLite DB (16 tables, 30 migrations) for users, sessions, hosts, profiles, machines, history
 internal/web/        HTTP handlers, RBAC permissions, auth, rate limiter, POST SSE streaming, background monitor
 internal/remote/     Go SSH client, TOFU known_hosts, enrollment, health probes, quick actions, SSH test server
 internal/ansible/    Atomic inventory/playbook/vars generator, 7 embedded roles, vault, output parser, playbook guardrails

@@ -23,6 +23,7 @@ type Server struct {
 	db         *sql.DB
 	remote     *remote.Remote // the dashboard's SSH key, and what it does over SSH
 	loginLimit *loginLimiter
+	clock      func() time.Time // time source for TOTP and sessions; tests may override
 	// checks limits how many passwords are being checked at once. bcrypt is slow
 	// on purpose, so a flood of logins would keep every CPU busy; the others wait
 	// their turn, and give up if it takes too long.
@@ -90,6 +91,7 @@ func NewServer(db *sql.DB, rem *remote.Remote) *Server {
 		db:         db,
 		remote:     rem,
 		loginLimit: newLoginLimiter(),
+		clock:      time.Now,
 		checks:     make(chan struct{}, 4),
 		anon:       &eventCap{now: time.Now},
 		rebooting:  map[int64]bool{},
@@ -106,6 +108,13 @@ func NewServer(db *sql.DB, rem *remote.Remote) *Server {
 		schedJobs: defaultSchedJobs(),
 		schedWake: make(chan struct{}, 1),
 	}
+}
+
+func (s *Server) now() time.Time {
+	if s.clock != nil {
+		return s.clock()
+	}
+	return time.Now()
 }
 
 // handler is what a route does once the person is known and allowed.
@@ -127,6 +136,7 @@ func (s *Server) routes() []route {
 		{pattern: "POST /api/logout", action: ActionSelf, handle: s.logout},
 		{pattern: "GET /api/me", action: ActionSelf, handle: s.me},
 		{pattern: "POST /api/me/password", action: ActionSelf, handle: s.changePassword},
+		{pattern: "POST /api/me/totp/reset", action: ActionSelf, handle: s.resetMyTOTP},
 		{pattern: "GET /api/me/sessions", action: ActionSelf, handle: s.mySessions},
 		{pattern: "POST /api/me/sessions/revoke-others", action: ActionSelf, handle: s.revokeOtherSessions},
 
@@ -236,6 +246,7 @@ func (s *Server) routes() []route {
 		{pattern: "POST /api/users", action: ActionManageUsers, handle: s.createUser},
 		{pattern: "POST /api/users/{id}/role", action: ActionManageUsers, handle: s.setUserRole},
 		{pattern: "POST /api/users/{id}/password", action: ActionManageUsers, handle: s.resetUserPassword},
+		{pattern: "POST /api/users/{id}/totp-reset", action: ActionManageUsers, handle: s.resetUserTOTP},
 		{pattern: "POST /api/users/{id}/disable", action: ActionManageUsers, handle: s.disableUser},
 		{pattern: "POST /api/users/{id}/enable", action: ActionManageUsers, handle: s.enableUser},
 
